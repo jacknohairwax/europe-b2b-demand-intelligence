@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "clusters": [
+    {
+      "id": "non_powered_hand_tools",
+      "label": "Non-powered hand tools",
+      "keywords": ["hand tools", "manual tools", "spanners", "wrenches", "pliers"],
+      "cpv_prefixes": ["4451"],
+      "candidate_hs_codes": ["8203", "8204", "8205", "8206"],
+      "mapping_status": "candidate_requires_review"
+    },
+    {
+      "id": "simple_furniture_hardware",
+      "label": "Simple furniture/cabinet hardware",
+      "keywords": ["furniture fittings", "cabinet hardware", "hinges", "drawer slides"],
+      "cpv_prefixes": ["3914", "4452"],
+      "candidate_hs_codes": ["8302"],
+      "mapping_status": "candidate_requires_review"
+    },
+    {
+      "id": "non_chemical_janitorial_tools",
+      "label": "Non-chemical janitorial tools",
+      "keywords": ["brooms", "brushes", "mops", "cleaning cloths", "janitorial tools"],
+      "cpv_prefixes": ["39224", "39525"],
+      "candidate_hs_codes": ["9603", "6307"],
+      "mapping_status": "candidate_requires_review"
+    }
+  ]
+}
+

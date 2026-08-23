@@ -1,0 +1,49 @@
+# OS and editor state
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python environments, caches, coverage, and builds
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+build/
+dist/
+*.egg-info/
+*.py[cod]
+
+# Local databases and runtime state
+*.duckdb
+*.duckdb.wal
+*.db-wal
+*.log
+*.tmp
+
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+.secrets/
+secrets/
+credentials*.json
+*.pem
+*.key
+
+# Generated data and exports. Keep only directory sentinels in Git.
+data/raw/*
+data/normalized/*
+data/snapshots/*
+data/exports/*
+!data/**/.gitkeep
+outputs/
+work/

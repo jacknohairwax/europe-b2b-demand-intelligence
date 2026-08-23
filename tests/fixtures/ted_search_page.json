@@ -1,0 +1,27 @@
+{
+  "totalNoticeCount": 1,
+  "notices": [
+    {
+      "publication-number": "123456-2026",
+      "notice-identifier": "550e8400-e29b-41d4-a716-446655440000",
+      "publication-date": "2026-08-20+02:00",
+      "deadline": "2026-09-30+02:00",
+      "buyer-name": {"eng": ["Example Municipal Authority"]},
+      "buyer-country": ["IRL"],
+      "buyer-city": {"eng": ["Dublin"]},
+      "title-proc": {"eng": ["Framework for supply of non-powered hand tools"]},
+      "description-proc": {"eng": ["Supply of spanners, pliers and related manual tools."]},
+      "main-classification-proc": ["44511000"],
+      "estimated-value-proc": ["250000"],
+      "estimated-value-cur-proc": ["EUR"],
+      "notice-type": ["competition"],
+      "procedure-type": ["open"],
+      "links": {
+        "html": {
+          "ENG": "https://ted.europa.eu/en/notice/-/detail/123456-2026"
+        }
+      }
+    }
+  ]
+}
+

@@ -18,6 +18,12 @@ class RecommendationStatus(StrEnum):
     NEEDS_VALIDATION = "Needs Further Validation"
 
 
+class TradeRole(StrEnum):
+    IMPORTER = "Importer"
+    EXPORTER = "Exporter"
+    UNRESOLVED = "Unresolved"
+
+
 class Evidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -95,11 +101,103 @@ class OpportunityScore(BaseModel):
     scored_at: datetime
 
 
+class TradeActivity(BaseModel):
+    """One observed trader/product/month/role tuple from UK Trade Info."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    activity_id: str
+    source_record_id: str
+    trader_id: int
+    company_name: str
+    address_lines: list[str] = Field(default_factory=list)
+    postcode: str | None = None
+    commodity_code: str
+    commodity_code_level: str
+    hs2_code: str | None = None
+    hs4_code: str | None = None
+    hs6_code: str | None = None
+    product_description: str | None = None
+    year: int
+    month: int = Field(ge=1, le=12)
+    trade_role: TradeRole
+    value: Decimal | None = None
+    quantity: Decimal | None = None
+    partner_country: str | None = None
+    source_url: str
+    evidence_id: str
+    raw_payload_reference: str
+    payload_sha256: str
+
+
+class RecurrentDemandAccount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company_id: str
+    company_name: str
+    country: str
+    website: str | None = None
+    company_type: str | None = None
+    products: list[str] = Field(default_factory=list)
+    relevant_hs_codes: list[str] = Field(default_factory=list)
+    procurement_evidence: list[str] = Field(default_factory=list)
+    trade_evidence: list[str] = Field(default_factory=list)
+    import_evidence: list[str] = Field(default_factory=list)
+    china_sourcing_evidence: list[str] = Field(default_factory=list)
+    months_active: int
+    estimated_scale: str
+    buyer_role: str
+    contact_status: str
+    buying_signals: list[str] = Field(default_factory=list)
+    switching_hypothesis: str | None = None
+    evidence_strength: str
+    confidence: float = Field(ge=0, le=1)
+    next_action: str
+    activity_year: int | None = None
+    recurrent_product_roles: list[str] = Field(default_factory=list)
+
+
+class CanonicalCompany(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company_id: str
+    preferred_name: str
+    normalized_name: str
+    country: str | None = None
+    original_names: list[str] = Field(default_factory=list)
+    identifiers: dict[str, str] = Field(default_factory=dict)
+    addresses: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+class EntityLinkDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_id: str
+    left_company_id: str
+    right_company_id: str
+    normalized_name: str
+    status: str
+    match_type: str
+    confidence: float = Field(ge=0, le=1)
+    reasoning: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    decided_at: datetime
+    is_current: bool = True
+
+
 __all__ = [
     "DemandStatus",
+    "CanonicalCompany",
+    "EntityLinkDecision",
     "Evidence",
     "ExplicitDemand",
     "GateAnswer",
     "OpportunityScore",
+    "RecurrentDemandAccount",
     "RecommendationStatus",
+    "TradeActivity",
+    "TradeRole",
 ]

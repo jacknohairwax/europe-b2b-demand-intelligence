@@ -1,0 +1,170 @@
+{
+  "uri": "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages/ocds-h6vhtk-050918?limit=2",
+  "version": "1.1",
+  "publishedDate": "2026-01-06T14:32:26Z",
+  "links": {
+    "next": "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages/ocds-h6vhtk-050918?limit=2&cursor=TWlsZXN0b25lMg=="
+  },
+  "releases": [
+    {
+      "id": "048243-2025",
+      "ocid": "ocds-h6vhtk-050918",
+      "date": "2025-08-13T09:21:47+01:00",
+      "tag": ["tender"],
+      "buyer": {
+        "id": "GB-PPON-PYDD-1122-TCVN",
+        "name": "Leicestershire County Council, trading as ESPO"
+      },
+      "parties": [
+        {
+          "id": "GB-PPON-PYDD-1122-TCVN",
+          "name": "Leicestershire County Council, trading as ESPO",
+          "identifier": {"scheme": "GB-PPON", "id": "PYDD-1122-TCVN"},
+          "additionalIdentifiers": [
+            {"scheme": "GB-COH", "id": "00123456", "legalName": "Example legal buyer"}
+          ],
+          "address": {
+            "streetAddress": "Barnsdale Way, Grove Park, Enderby",
+            "locality": "Leicester",
+            "postalCode": "LE19 1ES",
+            "country": "GB",
+            "countryName": "United Kingdom",
+            "region": "UKF22"
+          },
+          "roles": ["buyer"]
+        }
+      ],
+      "tender": {
+        "id": "52_26",
+        "title": "52_26 Janitorial, Hygiene and Cleaning Equipment",
+        "description": "Supply of janitorial and cleaning equipment through an eight-lot framework.",
+        "status": "active",
+        "value": {"amountGross": 2600000, "currency": "GBP"},
+        "procurementMethod": "open",
+        "procurementMethodDetails": "Open procedure",
+        "mainProcurementCategory": "goods",
+        "techniques": {"hasFrameworkAgreement": true},
+        "tenderPeriod": {"endDate": "2025-09-15T12:00:00+01:00"},
+        "items": [
+          {
+            "id": "1",
+            "additionalClassifications": [
+              {"scheme": "CPV", "id": "39224100", "description": "Brooms"},
+              {"scheme": "CPV", "id": "39224200", "description": "Brushes"}
+            ]
+          }
+        ],
+        "lots": [
+          {
+            "id": "1",
+            "contractPeriod": {
+              "startDate": "2026-03-01T00:00:00Z",
+              "endDate": "2028-03-31T23:59:59+01:00",
+              "maxExtentDate": "2030-02-28T23:59:59Z"
+            }
+          },
+          {
+            "id": "2",
+            "contractPeriod": {
+              "startDate": "2026-03-01T00:00:00Z",
+              "endDate": "2028-03-31T23:59:59+01:00",
+              "maxExtentDate": "2030-02-28T23:59:59Z"
+            }
+          }
+        ],
+        "documents": [
+          {
+            "id": "048243-2025",
+            "documentType": "tenderNotice",
+            "url": "https://www.find-tender.service.gov.uk/Notice/048243-2025",
+            "datePublished": "2025-08-13T09:21:47+01:00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "000711-2026",
+      "ocid": "ocds-h6vhtk-050918",
+      "date": "2026-01-06T14:32:26Z",
+      "tag": ["award", "contract"],
+      "buyer": {
+        "id": "GB-PPON-PYDD-1122-TCVN",
+        "name": "Leicestershire County Council, trading as ESPO"
+      },
+      "parties": [
+        {
+          "id": "GB-PPON-PYDD-1122-TCVN",
+          "name": "Leicestershire County Council, trading as ESPO",
+          "identifier": {"scheme": "GB-PPON", "id": "PYDD-1122-TCVN"},
+          "address": {"locality": "Leicester", "country": "GB", "countryName": "United Kingdom"},
+          "roles": ["buyer"]
+        },
+        {
+          "id": "GB-COH-06355141",
+          "name": "ARROW COUNTY SUPPLIES LIMITED",
+          "identifier": {"scheme": "GB-COH", "id": "06355141"},
+          "roles": ["supplier"]
+        },
+        {
+          "id": "GB-COH-01099088",
+          "name": "ROBERT SCOTT & SONS LIMITED",
+          "identifier": {"scheme": "GB-COH", "id": "01099088"},
+          "roles": ["supplier"]
+        }
+      ],
+      "tender": {
+        "id": "52_26",
+        "title": "52_26 Janitorial, Hygiene and Cleaning Equipment",
+        "status": "complete",
+        "procurementMethod": "open",
+        "procurementMethodDetails": "Open procedure",
+        "techniques": {"hasFrameworkAgreement": true}
+      },
+      "awards": [
+        {
+          "id": "1",
+          "title": "Lot 1. Brooms and Brushes",
+          "status": "pending",
+          "date": "2025-11-27T00:00:00Z",
+          "value": {"amountGross": 288000, "currency": "GBP"},
+          "suppliers": [
+            {"id": "GB-COH-06355141", "name": "ARROW COUNTY SUPPLIES LIMITED"},
+            {"id": "GB-COH-01099088", "name": "ROBERT SCOTT & SONS LIMITED"}
+          ],
+          "items": [
+            {
+              "id": "1",
+              "additionalClassifications": [
+                {"scheme": "CPV", "id": "39224100", "description": "Brooms"},
+                {"scheme": "CPV", "id": "39224200", "description": "Brushes"}
+              ]
+            }
+          ],
+          "contractPeriod": {
+            "startDate": "2026-03-01T00:00:00Z",
+            "endDate": "2028-03-31T23:59:59+01:00",
+            "maxExtentDate": "2030-02-28T23:59:59Z"
+          },
+          "documents": [
+            {
+              "id": "000711-2026",
+              "documentType": "awardNotice",
+              "url": "https://www.find-tender.service.gov.uk/Notice/000711-2026",
+              "datePublished": "2026-01-06T14:32:26Z"
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "title": "Lot 2. Cloths and Sponges",
+          "status": "pending",
+          "date": "2025-11-27T00:00:00Z",
+          "value": {"amountGross": 528000, "currency": "GBP"},
+          "suppliers": [
+            {"id": "GB-COH-01099088", "name": "ROBERT SCOTT & SONS LIMITED"}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "@odata.context": "https://api.uktradeinfo.com/$metadata#Trade(Trader(),Commodity(),TradeType())",
+  "value": [
+    {
+      "TraderId": 1198,
+      "CommodityId": 82011000,
+      "MonthId": 202501,
+      "TradeTypeId": 1,
+      "Trader": {
+        "TraderId": 1198,
+        "CompanyName": "NEILL TOOLS LTD",
+        "Address1": "ATLAS WAY",
+        "Address2": "SHEFFIELD",
+        "Address3": "",
+        "Address4": "",
+        "Address5": "",
+        "PostCode": "S4 7QQ"
+      },
+      "Commodity": {
+        "CommodityId": 82011000,
+        "Cn8Code": "82011000",
+        "Hs2Code": "82",
+        "Hs4Code": "8201",
+        "Hs6Code": "820110",
+        "Hs2Description": "Tools of base metal",
+        "Hs4Description": "Hand tools",
+        "Hs6Description": "Spades and shovels",
+        "Cn8LongDescription": "Spades and shovels of base metal"
+      },
+      "TradeType": {"TradeTypeId": 1, "TradeTypeDescription": "Import    "}
+    },
+    {
+      "TraderId": 1198,
+      "CommodityId": 82011000,
+      "MonthId": 202502,
+      "TradeTypeId": 1,
+      "Trader": {
+        "TraderId": 1198,
+        "CompanyName": "NEILL TOOLS LIMITED",
+        "Address1": "ATLAS WAY",
+        "Address2": "SHEFFIELD",
+        "Address3": "",
+        "Address4": "",
+        "Address5": "",
+        "PostCode": "S4 7QQ"
+      },
+      "Commodity": {
+        "CommodityId": 82011000,
+        "Cn8Code": "82011000",
+        "Hs2Code": "82",
+        "Hs4Code": "8201",
+        "Hs6Code": "820110",
+        "Hs2Description": "Tools of base metal",
+        "Hs4Description": "Hand tools",
+        "Hs6Description": "Spades and shovels",
+        "Cn8LongDescription": "Spades and shovels of base metal"
+      },
+      "TradeType": {"TradeTypeId": 1, "TradeTypeDescription": "Import    "}
+    },
+    {
+      "TraderId": 1198,
+      "CommodityId": 82019000,
+      "MonthId": 202502,
+      "TradeTypeId": 2,
+      "Trader": {
+        "TraderId": 1198,
+        "CompanyName": "NEILL TOOLS LIMITED",
+        "Address1": "ATLAS WAY",
+        "Address2": "SHEFFIELD",
+        "Address3": "",
+        "Address4": "",
+        "Address5": "",
+        "PostCode": "S4 7QQ"
+      },
+      "Commodity": {
+        "CommodityId": 82019000,
+        "Cn8Code": "82019000",
+        "Hs2Code": "82",
+        "Hs4Code": "8201",
+        "Hs6Code": "820190",
+        "Hs2Description": "Tools of base metal",
+        "Hs4Description": "Hand tools",
+        "Hs6Description": "Other hand tools",
+        "Cn8LongDescription": "Other hand tools of base metal"
+      },
+      "TradeType": {"TradeTypeId": 2, "TradeTypeDescription": "Export    "}
+    }
+  ]
+}

@@ -13,6 +13,7 @@ dependencies = [
   "httpx>=0.28,<1",
   "pydantic>=2.10,<3",
   "pyarrow>=19,<22",
+  "pytz>=2025.2,<2027",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +34,7 @@ packages = ["src/demand_intelligence"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
@@ -45,4 +47,3 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.11"
 strict = true
 packages = ["demand_intelligence"]
-

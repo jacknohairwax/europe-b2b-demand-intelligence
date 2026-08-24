@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+from demand_intelligence.classification import match_product_cluster
 from demand_intelligence.models import DemandStatus, Evidence, ExplicitDemand
 from demand_intelligence.storage import SnapshotReference
 
@@ -66,24 +67,22 @@ def _source_url(raw: dict[str, Any], notice_id: str) -> str:
 def _taxonomy_match(
     raw: dict[str, Any], cpv_codes: list[str], taxonomy_path: Path
 ) -> tuple[str | None, list[str], str | None]:
-    taxonomy = json.loads(taxonomy_path.read_text())
     haystack = " ".join(
         str(_first(raw.get(key)) or "") for key in ("title-proc", "description-proc")
-    ).lower()
-    for cluster in taxonomy.get("clusters", []):
-        cpv_match = any(
-            code.startswith(prefix)
-            for code in cpv_codes
-            for prefix in cluster.get("cpv_prefixes", [])
-        )
-        keyword_match = any(word.lower() in haystack for word in cluster.get("keywords", []))
-        if cpv_match or keyword_match:
-            return (
-                str(cluster["label"]),
-                [str(code) for code in cluster.get("candidate_hs_codes", [])],
-                str(cluster.get("mapping_status")),
-            )
-    return None, [], None
+    )
+    match = match_product_cluster(
+        cpv_codes=cpv_codes, text=haystack, taxonomy_path=taxonomy_path
+    )
+    if match is None:
+        return None, [], None
+    return match.label, match.candidate_hs_codes, match.mapping_status
+
+
+def ted_payload_sha256(raw: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        raw, ensure_ascii=False, sort_keys=True, default=str
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def normalize_ted_notice(
@@ -122,7 +121,7 @@ def normalize_ted_notice(
         strength = "Insufficient identifying procurement fields"
 
     evidence_id = "ev-ted-" + hashlib.sha256(
-        f"{notice_id}|{snapshot.content_sha256}".encode()
+        f"{notice_id}|{ted_payload_sha256(raw)}".encode()
     ).hexdigest()[:24]
     limitations = ["Fields not present in the source response remain null."]
     if hs_codes:
@@ -178,3 +177,6 @@ def normalize_ted_notice(
         evidence_ids=[evidence_id],
     )
     return demand, evidence
+
+
+__all__ = ["normalize_ted_notice", "ted_payload_sha256"]

@@ -4,9 +4,19 @@ from pathlib import Path
 
 import duckdb
 
+from demand_intelligence.current_views import reconcile_find_tender_opportunities
+
 TABLES = [
     "explicit_demand",
+    "procurement_releases",
+    "procurement_awards",
+    "procurement_parties",
+    "trade_activity",
+    "canonical_companies",
+    "company_source_roles",
+    "entity_link_decisions",
     "recurrent_accounts",
+    "recurrent_account_scopes",
     "country_category",
     "evidence",
     "signals",
@@ -27,6 +37,13 @@ def _daily_report(connection: duckdb.DuckDBPyConnection) -> str:
            ORDER BY d.publication_date DESC NULLS LAST, d.notice_id
            LIMIT 10"""
     ).fetchall()
+    recurrent_rows = connection.execute(
+        """SELECT company_name, company_type, months_active, buyer_role,
+                  json_array_length(procurement_evidence) AS procurement_count
+           FROM recurrent_accounts
+           ORDER BY procurement_count DESC, months_active DESC, company_name
+           LIMIT 10"""
+    ).fetchall()
     lines = ["# Daily Demand Intelligence Report", "", "## New Explicit Demand", ""]
     if rows:
         for notice_id, buyer, requirement, deadline, _total, _status in rows:
@@ -36,7 +53,23 @@ def _daily_report(connection: duckdb.DuckDBPyConnection) -> str:
             )
     else:
         lines.append("No new explicit demand in this run.")
-    lines.extend(["", "## New Recurrent Buyer Signals", "", "No new validated signals."])
+    lines.extend(["", "## New Recurrent Buyer Signals", ""])
+    if recurrent_rows:
+        for company_name, company_type, months_active, buyer_role, procurement_count in (
+            recurrent_rows
+        ):
+            procurement = (
+                f"{procurement_count} linked procurement evidence record(s); "
+                f"role {buyer_role}"
+                if procurement_count
+                else "public procurement role not verified"
+            )
+            lines.append(
+                f"- **{company_name}** — {company_type}; {months_active} active month(s); "
+                f"{procurement}."
+            )
+    else:
+        lines.append("No recurrent trader accounts in this run.")
     lines.extend(["", "## High-Priority Validation Queue", ""])
     if rows:
         for notice_id, buyer, _requirement, _deadline, total, status in rows:
@@ -59,6 +92,7 @@ def _daily_report(connection: duckdb.DuckDBPyConnection) -> str:
 
 
 def export_all(connection: duckdb.DuckDBPyConnection, output_dir: Path) -> list[Path]:
+    reconcile_find_tender_opportunities(connection)
     output_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for table in TABLES:
@@ -76,4 +110,4 @@ def export_all(connection: duckdb.DuckDBPyConnection, output_dir: Path) -> list[
     return paths
 
 
-__all__ = ["export_all"]
+__all__ = ["TABLES", "export_all"]

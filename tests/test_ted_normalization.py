@@ -59,3 +59,24 @@ def test_missing_values_remain_null() -> None:
     assert demand.requirement is None
     assert demand.current_status == DemandStatus.PARTIAL
 
+
+def test_supplier_text_does_not_match_pliers_keyword() -> None:
+    raw = {
+        "publication-number": "777777-2026",
+        "buyer-name": "Example Authority",
+        "title-proc": "Supplier management software",
+        "description-proc": "A portal for suppliers and contract administration.",
+        "main-classification-proc": "48000000",
+    }
+    snapshot = SnapshotReference(
+        path="fixture.json",
+        content_sha256="c" * 64,
+        retrieved_at=datetime(2026, 8, 23, tzinfo=UTC),
+        source_url="https://api.ted.europa.eu/v3/notices/search",
+    )
+
+    demand, _ = normalize_ted_notice(
+        raw, snapshot, taxonomy_path=ROOT / "config/product_clusters.json"
+    )
+
+    assert demand.product_category is None

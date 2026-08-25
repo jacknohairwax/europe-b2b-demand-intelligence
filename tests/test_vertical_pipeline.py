@@ -63,7 +63,7 @@ def test_fixture_to_database_and_exports(tmp_path: Path) -> None:
             assert (tmp_path / f"exports/{table}.csv").exists()
             assert (tmp_path / f"exports/{table}.parquet").exists()
         report = (tmp_path / "exports/daily_report.md").read_text()
-        assert "123456-2026" in report
-        assert "Needs Further Validation" in report
+        assert "No change-detection run has been recorded" in report
+        assert "No selected-category current view has been materialized" in report
     finally:
         database.close()

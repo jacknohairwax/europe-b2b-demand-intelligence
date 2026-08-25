@@ -154,11 +154,19 @@ def _load_procurement_candidates(
     database: Database,
 ) -> dict[str, _ProcurementCandidate]:
     rows = database.connection.execute(
-        """SELECT source_name, release_id, release_payload_sha256, party_index,
-                  party_id, name, roles, identifiers, location, evidence_id
-           FROM procurement_parties
-           WHERE lower(source_name) = lower(?)
-           ORDER BY release_id, release_payload_sha256, party_index""",
+        """SELECT party.source_name, party.release_id,
+                  party.release_payload_sha256, party.party_index,
+                  party.party_id, party.name, party.roles, party.identifiers,
+                  party.location, party.evidence_id
+           FROM procurement_parties AS party
+           JOIN procurement_releases AS current_release
+             ON current_release.source_name = party.source_name
+            AND current_release.release_id = party.release_id
+            AND current_release.release_payload_sha256 = party.release_payload_sha256
+           WHERE lower(party.source_name) = lower(?)
+             AND current_release.is_current
+           ORDER BY party.release_id, party.release_payload_sha256,
+                    party.party_index""",
         [FIND_TENDER_SOURCE],
     ).fetchall()
     candidates: dict[str, _ProcurementCandidate] = {}
@@ -463,8 +471,16 @@ def _reset_find_tender_enrichment(database: Database) -> None:
     procurement_party_evidence = {
         str(row[0])
         for row in database.connection.execute(
-            """SELECT DISTINCT evidence_id FROM procurement_parties
-               WHERE lower(source_name) = lower(?) AND evidence_id IS NOT NULL""",
+            """SELECT DISTINCT party.evidence_id
+               FROM procurement_parties AS party
+               JOIN procurement_releases AS current_release
+                 ON current_release.source_name = party.source_name
+                AND current_release.release_id = party.release_id
+                AND current_release.release_payload_sha256 =
+                    party.release_payload_sha256
+               WHERE lower(party.source_name) = lower(?)
+                 AND party.evidence_id IS NOT NULL
+                 AND current_release.is_current""",
             [FIND_TENDER_SOURCE],
         ).fetchall()
     }

@@ -5,6 +5,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
+import demand_intelligence.pipelines as pipeline_module
 from demand_intelligence.connectors.find_tender import FindTenderReleasePackage
 from demand_intelligence.connectors.ted import TedSearchPage
 from demand_intelligence.current_views import reconcile_find_tender_opportunities
@@ -133,22 +136,72 @@ def test_persists_active_tender_and_awards_without_scoring_award(tmp_path: Path)
         assert json.loads(supplier_party[2])["name"] == "ROBERT SCOTT & SONS LIMITED"
 
 
+def test_find_tender_page_rolls_back_if_later_release_persistence_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = _fixture_package()
+    snapshot = _snapshot(page, datetime(2026, 1, 7, tzinfo=UTC))
+    original = pipeline_module._persist_procurement_parties
+    calls = 0
+
+    def fail_second_release(*args: object, **kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("synthetic second-release failure")
+        original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        pipeline_module, "_persist_procurement_parties", fail_second_release
+    )
+    with Database(tmp_path / "fts-page-atomic.duckdb") as database:
+        with pytest.raises(RuntimeError, match="second-release"):
+            process_find_tender_page(
+                page, snapshot, database, taxonomy_path=TAXONOMY
+            )
+
+        for table in (
+            "procurement_releases",
+            "procurement_release_observations",
+            "release_transitions",
+            "procurement_awards",
+            "procurement_parties",
+            "opportunity_current_state",
+            "opportunity_state_history",
+            "explicit_demand",
+            "opportunity_scores",
+        ):
+            assert database.connection.execute(
+                f"SELECT count(*) FROM {table}"
+            ).fetchone() == (0,)
+
+
 def test_same_release_id_retains_changed_payload_versions(tmp_path: Path) -> None:
     first_page = _single_release_page(0)
     changed_raw = copy.deepcopy(first_page.releases[0])
     changed_raw["description"] = "Published correction retained as a second release payload."
+    # Observation chronology, not a mutable/backdated release.date field,
+    # decides which official payload is the current version.
+    changed_raw["date"] = "2025-08-13T09:00:00+01:00"
     changed_page = first_page.model_copy(update={"releases": [changed_raw]})
+    first_snapshot = _snapshot(first_page, datetime(2025, 8, 14, tzinfo=UTC))
 
     with Database(tmp_path / "demand.duckdb") as database:
         process_find_tender_page(
             first_page,
-            _snapshot(first_page, datetime(2025, 8, 14, tzinfo=UTC)),
+            first_snapshot,
             database,
             taxonomy_path=TAXONOMY,
         )
         process_find_tender_page(
             changed_page,
             _snapshot(changed_page, datetime(2025, 8, 15, tzinfo=UTC)),
+            database,
+            taxonomy_path=TAXONOMY,
+        )
+        replayed_old_snapshot = process_find_tender_page(
+            first_page,
+            first_snapshot,
             database,
             taxonomy_path=TAXONOMY,
         )
@@ -162,6 +215,21 @@ def test_same_release_id_retains_changed_payload_versions(tmp_path: Path) -> Non
         assert len({row[0] for row in versions}) == 2
         assert {row[1] for row in versions} == {"1.1"}
         assert any("Published correction" in row[2] for row in versions)
+        assert replayed_old_snapshot == []
+        version_states = database.connection.execute(
+            """SELECT is_current, version_state, superseded_by_sha256,
+                      raw_release
+               FROM procurement_releases
+               WHERE release_id = '048243-2025'
+               ORDER BY is_current"""
+        ).fetchall()
+        assert [(row[0], row[1]) for row in version_states] == [
+            (False, "replaced"),
+            (True, "current"),
+        ]
+        assert version_states[0][2] is not None
+        assert version_states[1][2] is None
+        assert "Published correction" in version_states[1][3]
         assert _count(database, "procurement_parties") == 2
         assert _count(database, "evidence") == 2
         assert _count(database, "explicit_demand") == 1
@@ -193,6 +261,72 @@ def test_corrected_closed_release_retracts_current_opportunity(tmp_path: Path) -
         assert _count(database, "procurement_releases") == 2
         assert _count(database, "explicit_demand") == 0
         assert _count(database, "opportunity_scores") == 0
+        assert database.connection.execute(
+            """SELECT lifecycle, state_reason, source_status
+               FROM opportunity_current_state"""
+        ).fetchone() == ("closed", "source_status:complete", "complete")
+        assert database.connection.execute(
+            """SELECT prior_lifecycle, lifecycle
+               FROM opportunity_state_history ORDER BY recorded_at"""
+        ).fetchall() == [(None, "active"), ("active", "closed")]
+
+
+def test_new_observation_can_restore_an_earlier_release_payload(tmp_path: Path) -> None:
+    original_page = _single_release_page(0)
+    corrected_raw = copy.deepcopy(original_page.releases[0])
+    corrected_raw["description"] = "Temporary corrected payload."
+    corrected_page = original_page.model_copy(update={"releases": [corrected_raw]})
+    first_at = datetime(2025, 8, 14, tzinfo=UTC)
+    corrected_at = datetime(2025, 8, 15, tzinfo=UTC)
+    restored_at = datetime(2025, 8, 16, tzinfo=UTC)
+    database_path = tmp_path / "restored-release.duckdb"
+
+    with Database(database_path) as database:
+        process_find_tender_page(
+            original_page,
+            _snapshot(original_page, first_at),
+            database,
+            taxonomy_path=TAXONOMY,
+        )
+        process_find_tender_page(
+            corrected_page,
+            _snapshot(corrected_page, corrected_at),
+            database,
+            taxonomy_path=TAXONOMY,
+        )
+        restored = process_find_tender_page(
+            original_page,
+            _snapshot(original_page, restored_at),
+            database,
+            taxonomy_path=TAXONOMY,
+        )
+
+        assert len(restored) == 1
+        current = database.connection.execute(
+            """SELECT raw_release FROM procurement_releases
+               WHERE release_id = '048243-2025' AND is_current"""
+        ).fetchone()
+        assert current is not None
+        assert "Temporary corrected payload" not in current[0]
+        assert database.connection.execute(
+            """SELECT transition_type, count(*) FROM release_transitions
+               GROUP BY transition_type ORDER BY transition_type"""
+        ).fetchall() == [("corrected", 1), ("restored", 1)]
+        assert database.connection.execute(
+            "SELECT count(*) FROM procurement_release_observations"
+        ).fetchone() == (3,)
+
+    # Migration/bootstrap remains idempotent when a database with native
+    # observations is reopened.
+    with Database(database_path) as reopened:
+        assert reopened.connection.execute(
+            "SELECT count(*) FROM procurement_release_observations"
+        ).fetchone() == (3,)
+        current = reopened.connection.execute(
+            "SELECT raw_release FROM procurement_releases WHERE is_current"
+        ).fetchone()
+        assert current is not None
+        assert "Temporary corrected payload" not in current[0]
 
 
 def test_wall_clock_reconciliation_expires_untouched_opportunity(tmp_path: Path) -> None:
@@ -213,6 +347,13 @@ def test_wall_clock_reconciliation_expires_untouched_opportunity(tmp_path: Path)
         assert removed == 1
         assert _count(database, "explicit_demand") == 0
         assert _count(database, "opportunity_scores") == 0
+        assert database.connection.execute(
+            """SELECT lifecycle, state_reason
+               FROM opportunity_current_state"""
+        ).fetchone() == ("expired", "deadline_elapsed")
+        assert database.connection.execute(
+            "SELECT lifecycle FROM opportunity_state_history ORDER BY recorded_at"
+        ).fetchall() == [("active",), ("expired",)]
 
 
 def test_award_without_explicit_closure_does_not_retract_before_deadline(
@@ -244,6 +385,44 @@ def test_award_without_explicit_closure_does_not_retract_before_deadline(
 
         assert _count(database, "explicit_demand") == 1
         assert _count(database, "opportunity_scores") == 1
+
+
+def test_later_explicit_same_process_closure_does_not_require_stage_tag(
+    tmp_path: Path,
+) -> None:
+    active_page = _single_release_page(0)
+    closure_raw = copy.deepcopy(_single_release_page(1).releases[0])
+    closure_raw["id"] = "049999-2025"
+    closure_raw["date"] = "2025-08-20T10:00:00+01:00"
+    closure_raw["tag"] = []
+    tender = closure_raw.get("tender")
+    assert isinstance(tender, dict)
+    tender["status"] = "complete"
+    closure_page = active_page.model_copy(update={"releases": [closure_raw]})
+
+    with Database(tmp_path / "untagged-closure.duckdb") as database:
+        assert process_find_tender_page(
+            active_page,
+            _snapshot(active_page, datetime(2025, 8, 14, tzinfo=UTC)),
+            database,
+            taxonomy_path=TAXONOMY,
+        )
+        assert process_find_tender_page(
+            closure_page,
+            _snapshot(closure_page, datetime(2025, 8, 20, tzinfo=UTC)),
+            database,
+            taxonomy_path=TAXONOMY,
+        ) == []
+
+        assert _count(database, "explicit_demand") == 0
+        assert _count(database, "opportunity_scores") == 0
+        state = database.connection.execute(
+            """SELECT lifecycle, state_reason FROM opportunity_current_state
+               WHERE release_id = '048243-2025'"""
+        ).fetchone()
+        assert state is not None
+        assert state[0] == "closed"
+        assert state[1].startswith("same_ocid:049999-2025:source_status:complete")
 
 
 def test_out_of_category_active_tender_is_evidence_only(tmp_path: Path) -> None:

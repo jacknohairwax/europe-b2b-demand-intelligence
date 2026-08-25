@@ -27,10 +27,21 @@ from demand_intelligence.normalize.find_tender import (
     procurement_to_explicit_demand,
 )
 from demand_intelligence.normalize.ted import ted_payload_sha256
+from demand_intelligence.reconciliation import (
+    ScopeRunResult,
+    apply_scope_run_completion,
+    fail_scope_run,
+    reconcile_procurement_release_versions,
+    record_procurement_release_observation,
+    record_scope_members,
+    record_scope_page_completion,
+)
 from demand_intelligence.scoring import build_initial_opportunity
 from demand_intelligence.storage import Database, SnapshotReference
 
 _TradeActivityScope = tuple[int, str, str, str]
+_UKTI_TRANSACTION_BATCH_SIZE = 500
+_UKTI_RECURRENCE_BATCH_SIZE = 100
 
 
 def _json_default(value: object) -> object:
@@ -154,16 +165,50 @@ def _delete_find_tender_opportunity(database: Database, release_id: str) -> None
 
 
 def _persist_trade_activity(
-    database: Database, activity: TradeActivity, company_id: str
+    database: Database,
+    activity: TradeActivity,
+    company_id: str,
+    *,
+    run_id: str | None = None,
 ) -> None:
     database.connection.execute(
-        """INSERT OR REPLACE INTO trade_activity (
+        """INSERT INTO trade_activity (
         activity_id, source_record_id, company_id, trader_id, company_name,
         address_lines, postcode, commodity_code, hs2_code, hs4_code, hs6_code,
         commodity_code_level, product_description, year, month, trade_role, value, quantity,
         partner_country, source_url, evidence_id, raw_payload_reference,
-        payload_sha256
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        payload_sha256, is_current, first_seen_run_id, last_seen_run_id, removed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  TRUE, ?, ?, NULL)
+        ON CONFLICT (activity_id) DO UPDATE SET
+          source_record_id = excluded.source_record_id,
+          company_id = excluded.company_id,
+          trader_id = excluded.trader_id,
+          company_name = excluded.company_name,
+          address_lines = excluded.address_lines,
+          postcode = excluded.postcode,
+          commodity_code = excluded.commodity_code,
+          hs2_code = excluded.hs2_code,
+          hs4_code = excluded.hs4_code,
+          hs6_code = excluded.hs6_code,
+          commodity_code_level = excluded.commodity_code_level,
+          product_description = excluded.product_description,
+          year = excluded.year,
+          month = excluded.month,
+          trade_role = excluded.trade_role,
+          value = excluded.value,
+          quantity = excluded.quantity,
+          partner_country = excluded.partner_country,
+          source_url = excluded.source_url,
+          evidence_id = excluded.evidence_id,
+          raw_payload_reference = excluded.raw_payload_reference,
+          payload_sha256 = excluded.payload_sha256,
+          is_current = TRUE,
+          first_seen_run_id = coalesce(
+            trade_activity.first_seen_run_id, excluded.first_seen_run_id
+          ),
+          last_seen_run_id = excluded.last_seen_run_id,
+          removed_at = NULL""",
         [
             activity.activity_id,
             activity.source_record_id,
@@ -188,6 +233,8 @@ def _persist_trade_activity(
             activity.evidence_id,
             activity.raw_payload_reference,
             activity.payload_sha256,
+            run_id,
+            run_id,
         ],
     )
 
@@ -298,6 +345,15 @@ def _persist_procurement_release(
             _json(raw),
         ],
     )
+    record_procurement_release_observation(
+        database.connection,
+        source_name=record.source,
+        release_id=record.notice_id,
+        release_payload_sha256=record.raw_payload_sha256,
+        observed_at=snapshot.retrieved_at,
+        snapshot_reference=snapshot.path,
+        snapshot_content_sha256=snapshot.content_sha256,
+    )
 
 
 def _persist_procurement_awards(
@@ -376,7 +432,7 @@ def _rebuild_recurrent_account(
     rows = database.connection.execute(
         """SELECT company_name, product_description, commodity_code,
                   commodity_code_level, year, month, trade_role, evidence_id
-           FROM trade_activity WHERE company_id = ?""",
+           FROM trade_activity WHERE company_id = ? AND is_current""",
         [company_id],
     ).fetchall()
     group_months: dict[tuple[int, str, str, str], set[int]] = {}
@@ -562,13 +618,129 @@ def process_uk_trade_info_page(
     database: Database,
     *,
     minimum_months: int = 2,
+    run_id: str | None = None,
 ) -> list[RecurrentDemandAccount]:
+    """Persist a page, bounding transaction memory for large official responses.
+
+    Small pages remain one transaction. Large pages commit audited positive
+    observations in bounded batches, then rebuild affected recurrence accounts in
+    bounded batches. If a later batch fails, the run is non-authoritative, so prior
+    positive observations remain valid while no unseen record can be tombstoned.
+    """
+
+    if run_id is None:
+        return _process_uk_trade_info_page(
+            page,
+            snapshot,
+            database,
+            minimum_months=minimum_months,
+            run_id=None,
+        )
+    if len(page.records) > _UKTI_TRANSACTION_BATCH_SIZE:
+        affected_groups: dict[str, set[_TradeActivityScope]] = {}
+        for offset in range(0, len(page.records), _UKTI_TRANSACTION_BATCH_SIZE):
+            batch_page = page.model_copy(
+                update={
+                    "records": page.records[
+                        offset : offset + _UKTI_TRANSACTION_BATCH_SIZE
+                    ],
+                    "next_link": None,
+                }
+            )
+            database.connection.execute("BEGIN TRANSACTION")
+            try:
+                batch_groups = _persist_uk_trade_info_records(
+                    batch_page,
+                    snapshot,
+                    database,
+                    run_id=run_id,
+                    page_completed=False,
+                )
+            except Exception:
+                database.connection.execute("ROLLBACK")
+                raise
+            database.connection.execute("COMMIT")
+            for company_id, groups in batch_groups.items():
+                affected_groups.setdefault(company_id, set()).update(groups)
+
+        accounts: list[RecurrentDemandAccount] = []
+        company_ids = sorted(affected_groups)
+        for offset in range(0, len(company_ids), _UKTI_RECURRENCE_BATCH_SIZE):
+            database.connection.execute("BEGIN TRANSACTION")
+            try:
+                accounts.extend(
+                    _rebuild_affected_groups(
+                        database,
+                        affected_groups,
+                        company_ids=company_ids[
+                            offset : offset + _UKTI_RECURRENCE_BATCH_SIZE
+                        ],
+                        minimum_months=minimum_months,
+                    )
+                )
+            except Exception:
+                database.connection.execute("ROLLBACK")
+                raise
+            database.connection.execute("COMMIT")
+        record_scope_page_completion(database.connection, run_id=run_id)
+        return accounts
+    database.connection.execute("BEGIN TRANSACTION")
+    try:
+        accounts = _process_uk_trade_info_page(
+            page,
+            snapshot,
+            database,
+            minimum_months=minimum_months,
+            run_id=run_id,
+        )
+    except Exception:
+        database.connection.execute("ROLLBACK")
+        raise
+    database.connection.execute("COMMIT")
+    return accounts
+
+
+def _process_uk_trade_info_page(
+    page: UkTradeInfoPage,
+    snapshot: SnapshotReference,
+    database: Database,
+    *,
+    minimum_months: int = 2,
+    run_id: str | None = None,
+    page_completed: bool = True,
+) -> list[RecurrentDemandAccount]:
+    affected_groups = _persist_uk_trade_info_records(
+        page,
+        snapshot,
+        database,
+        run_id=run_id,
+        page_completed=page_completed,
+    )
+    return _rebuild_affected_groups(
+        database,
+        affected_groups,
+        company_ids=sorted(affected_groups),
+        minimum_months=minimum_months,
+    )
+
+
+def _persist_uk_trade_info_records(
+    page: UkTradeInfoPage,
+    snapshot: SnapshotReference,
+    database: Database,
+    *,
+    run_id: str | None,
+    page_completed: bool,
+) -> dict[str, set[_TradeActivityScope]]:
     affected_groups: dict[str, set[_TradeActivityScope]] = {}
+    scope_members: list[tuple[str, str]] = []
     for raw in page.records:
         activity, evidence, company = normalize_uk_trade_info_record(raw, snapshot)
         _persist_evidence(database, evidence)
         _persist_company(database, company)
-        _persist_trade_activity(database, activity, company.company_id)
+        _persist_trade_activity(
+            database, activity, company.company_id, run_id=run_id
+        )
         database.connection.execute(
             """INSERT OR IGNORE INTO company_source_roles
                VALUES (?, ?, ?, ?, ?, ?)""",
@@ -599,9 +771,28 @@ def process_uk_trade_info_page(
                 activity.trade_role.value,
             )
         )
+        scope_members.append((activity.source_record_id, activity.payload_sha256))
 
+    if run_id is not None:
+        record_scope_members(
+            database.connection,
+            run_id=run_id,
+            members=scope_members,
+            observed_at=snapshot.retrieved_at,
+            page_completed=page_completed,
+        )
+    return affected_groups
+
+
+def _rebuild_affected_groups(
+    database: Database,
+    affected_groups: dict[str, set[_TradeActivityScope]],
+    *,
+    company_ids: list[str],
+    minimum_months: int,
+) -> list[RecurrentDemandAccount]:
     accounts: list[RecurrentDemandAccount] = []
-    for company_id in sorted(affected_groups):
+    for company_id in company_ids:
         account = _rebuild_recurrent_account(
             database,
             company_id,
@@ -613,7 +804,103 @@ def process_uk_trade_info_page(
     return accounts
 
 
+def rebuild_recurrent_accounts(
+    database: Database,
+    company_ids: set[str],
+    *,
+    minimum_months: int,
+) -> list[RecurrentDemandAccount]:
+    """Rebuild company recurrence after current activity was removed or restored."""
+
+    accounts: list[RecurrentDemandAccount] = []
+    for company_id in sorted(company_ids):
+        current_groups = {
+            (int(row[0]), str(row[1]), str(row[2]), str(row[3]))
+            for row in database.connection.execute(
+                """SELECT DISTINCT year, commodity_code, commodity_code_level,
+                                  trade_role
+                   FROM trade_activity
+                   WHERE company_id = ? AND is_current""",
+                [company_id],
+            ).fetchall()
+        }
+        account = _rebuild_recurrent_account(
+            database,
+            company_id,
+            affected_groups=current_groups,
+            minimum_months=minimum_months,
+        )
+        if account is not None:
+            accounts.append(account)
+    return accounts
+
+
+def finalize_uk_trade_info_run(
+    database: Database,
+    *,
+    run_id: str,
+    authoritative: bool,
+    completion_reason: str,
+    minimum_months: int,
+    completed_at: datetime | None = None,
+) -> tuple[ScopeRunResult, list[RecurrentDemandAccount]]:
+    """Atomically reconcile removals, rebuild recurrence, and complete the run."""
+
+    database.connection.execute("BEGIN TRANSACTION")
+    try:
+        result = apply_scope_run_completion(
+            database.connection,
+            run_id=run_id,
+            authoritative=authoritative,
+            completion_reason=completion_reason,
+            completed_at=completed_at,
+        )
+        accounts = rebuild_recurrent_accounts(
+            database,
+            set(result.affected_company_ids),
+            minimum_months=minimum_months,
+        )
+    except Exception as error:
+        database.connection.execute("ROLLBACK")
+        try:
+            fail_scope_run(
+                database.connection,
+                run_id=run_id,
+                error=f"{type(error).__name__}: {error}",
+                completed_at=completed_at,
+            )
+        except ValueError:
+            pass
+        raise
+    database.connection.execute("COMMIT")
+    return result, accounts
+
+
 def process_find_tender_page(
+    page: FindTenderReleasePackage,
+    snapshot: SnapshotReference,
+    database: Database,
+    *,
+    taxonomy_path: Path,
+) -> list[ExplicitDemand]:
+    """Persist a full FTS page atomically, including current-version children."""
+
+    database.connection.execute("BEGIN TRANSACTION")
+    try:
+        results = _process_find_tender_page(
+            page,
+            snapshot,
+            database,
+            taxonomy_path=taxonomy_path,
+        )
+    except Exception:
+        database.connection.execute("ROLLBACK")
+        raise
+    database.connection.execute("COMMIT")
+    return results
+
+
+def _process_find_tender_page(
     page: FindTenderReleasePackage,
     snapshot: SnapshotReference,
     database: Database,
@@ -667,11 +954,18 @@ def process_find_tender_page(
             ],
         )
 
-        # This table is a current opportunity view. Re-evaluating the same
-        # official release must retract a previously active row before a
-        # corrected, closed, or expired version is considered.
-        if record.tender_status is not None:
-            _delete_find_tender_opportunity(database, record.notice_id)
+        current_sha = reconcile_procurement_release_versions(
+            database.connection,
+            source_name=record.source,
+            release_id=record.notice_id,
+        )
+        # An old snapshot may be replayed after a correction. It remains valid
+        # history but must not replace the newer current view.
+        if current_sha != record.raw_payload_sha256:
+            continue
+        # Re-evaluating the current official payload always retracts the old
+        # derived row before corrected category/status/deadline facts are applied.
+        _delete_find_tender_opportunity(database, record.notice_id)
         demand = procurement_to_explicit_demand(record, evidence)
         if demand is None or product_match is None:
             continue
@@ -702,7 +996,9 @@ def process_find_tender_page(
 
 
 __all__ = [
+    "finalize_uk_trade_info_run",
     "process_find_tender_page",
     "process_ted_page",
     "process_uk_trade_info_page",
+    "rebuild_recurrent_accounts",
 ]

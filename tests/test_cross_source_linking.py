@@ -81,7 +81,26 @@ def _seed_procurement_party(
     identifiers: list[dict[str, str | None]] | None = None,
     street_address: str = "10 High Street",
     locality: str = "London",
+    release_payload_sha256: str | None = None,
+    release_is_current: bool = True,
 ) -> None:
+    payload_sha256 = release_payload_sha256 or (
+        release_id.encode().hex() + "0" * 64
+    )[:64]
+    database.connection.execute(
+        """INSERT OR IGNORE INTO procurement_releases (
+             source_name, release_id, release_payload_sha256, retrieved_at,
+             is_current, version_state
+           ) VALUES (?, ?, ?, ?, ?, ?)""",
+        [
+            "Find a Tender OCDS API",
+            release_id,
+            payload_sha256,
+            DECIDED_AT,
+            release_is_current,
+            "current" if release_is_current else "replaced",
+        ],
+    )
     database.connection.execute(
         """INSERT INTO procurement_parties (
         source_name, release_id, release_payload_sha256, party_index, party_id,
@@ -90,7 +109,7 @@ def _seed_procurement_party(
         [
             "Find a Tender OCDS API",
             release_id,
-            (release_id.encode().hex() + "0" * 64)[:64],
+            payload_sha256,
             party_index,
             party_id,
             name,
@@ -109,6 +128,11 @@ def _seed_procurement_party(
             evidence_id,
             json.dumps({"id": party_id, "name": name, "roles": roles}),
         ],
+    )
+    database.connection.execute(
+        """INSERT OR IGNORE INTO evidence (evidence_id, source_name)
+           VALUES (?, 'Find a Tender OCDS API')""",
+        [evidence_id],
     )
 
 
@@ -345,6 +369,62 @@ def test_previous_acceptance_is_superseded_when_candidate_becomes_ambiguous(
                FROM recurrent_accounts"""
         ).fetchone()
         assert account == ("[]", "Not verified")
+
+
+def test_linker_uses_only_parties_from_current_release_payload(
+    tmp_path: Path,
+) -> None:
+    old_sha = "a" * 64
+    new_sha = "b" * 64
+    with Database(tmp_path / "current-party.duckdb") as database:
+        _seed_recurrent_account(database)
+        _seed_procurement_party(
+            database,
+            release_id="release-corrected",
+            release_payload_sha256=old_sha,
+            party_index=0,
+            party_id="party-acme",
+            name="ACME AND SONS LIMITED",
+            roles=["supplier"],
+            postcode="SW1A 1AA",
+            evidence_id="ev-fts-old-payload",
+        )
+        initial = link_recurrent_accounts_to_procurement(
+            database, decided_at=DECIDED_AT
+        )
+        assert initial[0].status == "accepted"
+
+        database.connection.execute(
+            """UPDATE procurement_releases
+               SET is_current = FALSE, version_state = 'replaced'
+               WHERE release_payload_sha256 = ?""",
+            [old_sha],
+        )
+        _seed_procurement_party(
+            database,
+            release_id="release-corrected",
+            release_payload_sha256=new_sha,
+            party_index=0,
+            party_id="party-acme",
+            name="ACME AND SONS LIMITED",
+            roles=["supplier"],
+            postcode="M1 1AA",
+            evidence_id="ev-fts-current-payload",
+            street_address="99 Other Road",
+            locality="Manchester",
+        )
+
+        current = link_recurrent_accounts_to_procurement(
+            database, decided_at=DECIDED_AT
+        )
+
+        assert len(current) == 1
+        assert current[0].status == "rejected"
+        assert "ev-fts-current-payload" in current[0].evidence_ids
+        assert "ev-fts-old-payload" not in current[0].evidence_ids
+        assert database.connection.execute(
+            "SELECT procurement_evidence, buyer_role FROM recurrent_accounts"
+        ).fetchone() == ("[]", "Not verified")
 
 
 def test_link_recomputation_rolls_back_if_rebuild_fails(
